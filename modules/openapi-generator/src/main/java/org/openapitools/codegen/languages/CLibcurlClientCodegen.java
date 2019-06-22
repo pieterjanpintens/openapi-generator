@@ -16,29 +16,29 @@
 
 package org.openapitools.codegen.languages;
 
-import io.swagger.v3.oas.models.media.ArraySchema;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.Schema;
+import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.openapitools.codegen.*;
 import org.openapitools.codegen.utils.ModelUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.io.FilenameUtils;
-
 import java.io.File;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+
+import static org.openapitools.codegen.utils.StringUtils.camelize;
+import static org.openapitools.codegen.utils.StringUtils.underscore;
 
 public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger(CLibcurlClientCodegen.class);
 
+    public static final String PROJECT_NAME = "projectName";
     protected String moduleName;
+    protected String projectName;
+    protected static final String defaultProjectName = "openapi_client";
     protected String specFolder = "spec";
     protected String libFolder = "lib";
     protected String apiDocPath = "docs/";
@@ -93,6 +93,7 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
                         "int",
                         "long",
                         "register",
+                        "remove",
                         "restrict",
                         "return",
                         "short",
@@ -132,9 +133,10 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
         languageSpecificPrimitives.add("float");
         languageSpecificPrimitives.add("double");
         languageSpecificPrimitives.add("char");
-        languageSpecificPrimitives.add("FILE");
+        languageSpecificPrimitives.add("binary_t*");
         languageSpecificPrimitives.add("Object");
         languageSpecificPrimitives.add("list_t*");
+        languageSpecificPrimitives.add("list");
 
         typeMapping.put("string", "char");
         typeMapping.put("char", "char");
@@ -146,10 +148,11 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
         typeMapping.put("date", "char");
         typeMapping.put("DateTime", "char");
         typeMapping.put("boolean", "int");
-        typeMapping.put("file", "FILE");
-        typeMapping.put("binary", "char");
+        typeMapping.put("file", "binary_t*");
+        typeMapping.put("binary", "binary_t*");
         typeMapping.put("ByteArray", "char");
         typeMapping.put("UUID", "char");
+        typeMapping.put("URI", "char");
         typeMapping.put("array", "list");
         typeMapping.put("map", "list_t*");
         typeMapping.put("date-time", "char");
@@ -200,9 +203,12 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
         supportingFiles.add(new SupportingFile("list.h.mustache", "include", "list.h"));
         // external folder
         supportingFiles.add(new SupportingFile("cJSON.licence.mustache", "external", "cJSON.licence"));
-        supportingFiles.add(new SupportingFile("cJSON.c.mustache", "external" + File.separator + "src", "cJSON.c"));
-        supportingFiles.add(new SupportingFile("cJSON.h.mustache", "external" + File.separator + "include", "cJSON.h"));
+        supportingFiles.add(new SupportingFile("cJSON.c.mustache", "external", "cJSON.c"));
+        supportingFiles.add(new SupportingFile("cJSON.h.mustache", "external", "cJSON.h"));
 
+        // Object files in model folder
+        supportingFiles.add(new SupportingFile("object-body.mustache", "model", "object.c"));
+        supportingFiles.add(new SupportingFile("object-header.mustache", "model", "object.h"));
     }
 
     @Override
@@ -331,6 +337,9 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
     @Override
     public String toParamName(String name) {
         // should be the same as variable name
+        if (name.matches("^\\d.*")) {
+            name = escapeReservedWord(name);
+        }
         name = name.replaceAll("-","_");
         return name;
     }
@@ -410,11 +419,15 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
 
     @Override
     public String toEnumValue(String value, String datatype) {
+        value = value.replaceAll("-","_");
+        if (isReservedWord(value)) {
+            value = escapeReservedWord(value);
+        }
         if ("Integer".equals(datatype) || "Float".equals(datatype)) {
             return value;
         } else {
             if (value.matches("\\d.*")) { // starts with number
-                return "N" + escapeText(value);
+                return escapeReservedWord(escapeText(value));
             } else {
                 return escapeText(value);
             }
@@ -442,7 +455,7 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
         enumName = enumName.replaceFirst("_$", "");
 
         if (enumName.matches("\\d.*")) { // starts with number
-            return "N" + enumName;
+            return escapeReservedWord(enumName);
         } else {
             return enumName;
         }
@@ -455,7 +468,7 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
         enumName = enumName.replaceFirst("_$", "");
 
         if (enumName.matches("\\d.*")) { // starts with number
-            return "N" + enumName;
+            return escapeReservedWord(enumName);
         } else {
             return enumName;
         }
@@ -500,7 +513,10 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
 
     @Override
     public String toModelImport(String name) {
-        return "#include \"" + name + ".h\"";
+        if (importMapping.containsKey(name)) {
+            return "#include \"" +"../model/" + importMapping.get(name) + ".h\"";
+        } else
+            return "#include \"" +"../model/" + name + ".h\"";
     }
 
     @Override
@@ -568,11 +584,18 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
     }
 
     @Override
-    public boolean shouldOverwrite(String filename) {
-        // skip spec file as the file might have been updated with new test cases
-        return !(skipOverwrite && new File(filename).exists());
-        //
-        //return super.shouldOverwrite(filename) && !filename.endsWith("_spec.rb");
+    public void preprocessOpenAPI(OpenAPI openAPI) {
+        if (openAPI.getInfo() != null) {
+            Info info = openAPI.getInfo();
+            setProjectName((escapeText(info.getTitle())));
+        } else {
+            setProjectName(defaultProjectName);
+        }
+        additionalProperties.put(PROJECT_NAME, projectName);
+    }
+
+    public void setProjectName(String projectName) {
+        this.projectName = underscore(projectName.toLowerCase(Locale.ROOT));
     }
 
     @Override
@@ -584,6 +607,18 @@ public class CLibcurlClientCodegen extends DefaultCodegen implements CodegenConf
     @Override
     public String escapeUnsafeCharacters(String input) {
         return input.replace("=end", "=_end").replace("=begin", "=_begin");
+    }
+
+    @Override
+    public CodegenProperty fromProperty(String name, Schema p) {
+        CodegenProperty cm = super.fromProperty(name,p);
+        Schema ref = ModelUtils.getReferencedSchema(openAPI, p);
+        if (ref != null) {
+           if (ref.getEnum() != null) {
+               cm.isEnum = true;
+           }
+        }
+        return cm;
     }
 
 

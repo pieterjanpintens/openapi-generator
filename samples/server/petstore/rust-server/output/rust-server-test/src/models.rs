@@ -2,12 +2,13 @@
 extern crate chrono;
 extern crate uuid;
 
-
 use serde::ser::Serializer;
 
 use std::collections::HashMap;
 use models;
 use swagger;
+use std::string::ParseError;
+
 
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,6 +33,7 @@ impl ANullableContainer {
     }
 }
 
+
 /// An additionalPropertiesObject
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdditionalPropertiesObject {
@@ -43,6 +45,7 @@ impl AdditionalPropertiesObject {
         }
     }
 }
+
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InlineObject {
@@ -64,6 +67,7 @@ impl InlineObject {
     }
 }
 
+
 /// An object of objects
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObjectOfObjects {
@@ -80,6 +84,7 @@ impl ObjectOfObjects {
         }
     }
 }
+
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObjectOfObjectsInner {
@@ -100,3 +105,4 @@ impl ObjectOfObjectsInner {
         }
     }
 }
+
